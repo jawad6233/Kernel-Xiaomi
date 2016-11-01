@@ -13050,6 +13050,141 @@ static struct regulator *tasha_codec_find_ondemand_regulator(
 	return NULL;
 }
 
+
+#ifdef CONFIG_SOUND_CONTROL
+static struct snd_soc_codec *sound_control_codec_ptr;
+
+static ssize_t headphone_gain_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d %d\n",
+		snd_soc_read(sound_control_codec_ptr, WCD9335_CDC_RX1_RX_VOL_CTL),
+		snd_soc_read(sound_control_codec_ptr, WCD9335_CDC_RX2_RX_VOL_CTL)
+	);
+}
+
+static ssize_t headphone_gain_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+
+	int input_l, input_r;
+
+	sscanf(buf, "%d %d", &input_l, &input_r);
+
+	if (input_l < -84 || input_l > 20)
+		input_l = 0;
+
+	if (input_r < -84 || input_r > 20)
+		input_r = 0;
+
+	snd_soc_write(sound_control_codec_ptr, WCD9335_CDC_RX1_RX_VOL_MIX_CTL, input_l);
+	snd_soc_write(sound_control_codec_ptr, WCD9335_CDC_RX2_RX_VOL_MIX_CTL, input_r);
+	snd_soc_write(sound_control_codec_ptr, WCD9335_CDC_RX1_RX_VOL_CTL, input_l);
+	snd_soc_write(sound_control_codec_ptr, WCD9335_CDC_RX2_RX_VOL_CTL, input_r);
+
+	return count;
+}
+
+static struct kobj_attribute headphone_gain_attribute =
+	__ATTR(headphone_gain, 0664,
+		headphone_gain_show,
+		headphone_gain_store);
+
+static ssize_t headphone_pa_gain_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	u8 hph_l_gain = snd_soc_read(sound_control_codec_ptr, WCD9335_HPH_L_EN);
+	u8 hph_r_gain = snd_soc_read(sound_control_codec_ptr, WCD9335_HPH_R_EN);
+
+	return snprintf(buf, PAGE_SIZE, "%d %d\n",
+		hph_l_gain & 0x1F, hph_r_gain & 0x1F);
+}
+
+static ssize_t headphone_pa_gain_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input_l, input_r;
+	struct tasha_priv *tasha = snd_soc_codec_get_drvdata(sound_control_codec_ptr);
+
+	sscanf(buf, "%d %d", &input_l, &input_r);
+
+	if (input_l < 1 || input_l > 20)
+		input_l = 1;
+
+	if (input_r < 1 || input_r > 20)
+		input_r = 1;
+
+	snd_soc_update_bits(sound_control_codec_ptr, WCD9335_HPH_L_EN, 0x1f, input_l);
+	snd_soc_update_bits(sound_control_codec_ptr, WCD9335_HPH_R_EN, 0x1f, input_r);
+
+	tasha->hph_l_gain = input_l;
+	tasha->hph_r_gain = input_r;
+
+	return count;
+}
+
+static struct kobj_attribute headphone_pa_gain_attribute =
+	__ATTR(headphone_pa_gain, 0664,
+		headphone_pa_gain_show,
+		headphone_pa_gain_store);
+
+struct snd_soc_codec *tfa98xx_codec_ptr;
+#include "tfa9891_genregs.h"
+#define TO_FIXED(e) e
+static ssize_t speaker_gain_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	u16 value;
+	s64 vol;
+
+	value = snd_soc_read(tfa98xx_codec_ptr, TFA98XX_AUDIO_CTR);
+	value >>= 8;
+	vol = TO_FIXED(value) / -2;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", (int)vol);
+}
+
+static ssize_t speaker_gain_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int input;
+	u16 value = 0;
+	int volume_value;
+
+	sscanf(buf, "%d", &input);
+	if (input < 0 || input > 127)
+		input = 0;
+
+	value = snd_soc_read(tfa98xx_codec_ptr, TFA98XX_AUDIO_CTR);
+	volume_value = 2 * input;
+	if (volume_value > 255)
+		volume_value = 255;
+	value = (value & 0x00FF) | (u16)(volume_value << 8);
+
+	snd_soc_write(tfa98xx_codec_ptr, TFA98XX_AUDIO_CTR, value);
+
+	return count;
+}
+
+static struct kobj_attribute speaker_gain_attribute =
+	__ATTR(speaker_gain, 0664,
+		speaker_gain_show,
+		speaker_gain_store);
+
+static struct attribute *sound_control_attrs[] = {
+		&headphone_gain_attribute.attr,
+		&headphone_pa_gain_attribute.attr,
+		&speaker_gain_attribute.attr,
+		NULL,
+};
+
+static struct attribute_group sound_control_attr_group = {
+		.attrs = sound_control_attrs,
+};
+
+static struct kobject *sound_control_kobj;
+#endif
+
 static int tasha_codec_probe(struct snd_soc_codec *codec)
 {
 	struct wcd9xxx *control;
