@@ -1,7 +1,6 @@
 #
-# Automatically generated file; DO NOT EDIT.
-# Linux/arm64 3.18.31 Kernel Configuration
-#
+# Automatically generated file; DO NOT EDIT
+# Linux/arm64 3.18.71 Kernel Configuration
 CONFIG_ARM64=y
 CONFIG_64BIT=y
 CONFIG_ARCH_PHYS_ADDR_T_64BIT=y
@@ -93,7 +92,9 @@ CONFIG_TICK_CPU_ACCOUNTING=y
 # CONFIG_VIRT_CPU_ACCOUNTING_GEN is not set
 # CONFIG_IRQ_TIME_ACCOUNTING is not set
 # CONFIG_BSD_PROCESS_ACCT is not set
-# CONFIG_TASKSTATS is not set
+CONFIG_TASKSTATS=y
+CONFIG_TASK_XACCT=y
+CONFIG_TASK_IO_ACCOUNTING=y
 
 #
 # RCU Subsystem
