@@ -112,3 +112,56 @@ Date:		January 2016
 Contact:	"Shuoran Liu" <liushuoran@huawei.com>
 Description:
 		 Shows total written kbytes issued to disk.
+
+What:		/sys/fs/f2fs/<disk>/feature
+Date:		July 2017
+Contact:	"Jaegeuk Kim" <jaegeuk@kernel.org>
+Description:
+		 Shows all enabled features in current device.
+
+What:		/sys/fs/f2fs/<disk>/inject_rate
+Date:		May 2016
+Contact:	"Sheng Yong" <shengyong1@huawei.com>
+Description:
+		 Controls the injection rate.
+
+What:		/sys/fs/f2fs/<disk>/inject_type
+Date:		May 2016
+Contact:	"Sheng Yong" <shengyong1@huawei.com>
+Description:
+		 Controls the injection type.
+
+What:		/sys/fs/f2fs/<disk>/reserved_blocks
+Date:		June 2017
+Contact:	"Chao Yu" <yuchao0@huawei.com>
+Description:
+		 Controls target reserved blocks in system, the threshold
+		 is soft, it could exceed current available user space.
+
+What:		/sys/fs/f2fs/<disk>/current_reserved_blocks
+Date:		October 2017
+Contact:	"Yunlong Song" <yunlong.song@huawei.com>
+Contact:	"Chao Yu" <yuchao0@huawei.com>
+Description:
+		 Shows current reserved blocks in system, it may be temporarily
+		 smaller than target_reserved_blocks, but will gradually
+		 increase to target_reserved_blocks when more free blocks are
+		 freed by user later.
+
+What:		/sys/fs/f2fs/<disk>/gc_urgent
+Date:		August 2017
+Contact:	"Jaegeuk Kim" <jaegeuk@kernel.org>
+Description:
+		 Do background GC agressively
+
+What:		/sys/fs/f2fs/<disk>/gc_urgent_sleep_time
+Date:		August 2017
+Contact:	"Jaegeuk Kim" <jaegeuk@kernel.org>
+Description:
+		 Controls sleep time of GC urgent mode
+
+What:		/sys/fs/f2fs/<disk>/readdir_ra
+Date:		November 2017
+Contact:	"Sheng Yong" <shengyong1@huawei.com>
+Description:
+		 Controls readahead inode block in readdir.
