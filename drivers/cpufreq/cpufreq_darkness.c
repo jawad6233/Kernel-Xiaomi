@@ -147,6 +147,47 @@ static void update_sampling_rate(unsigned int new_rate)
 			continue;
 		}
 
+	}
+	spin_unlock_irqrestore(&ppol->load_lock, flags);
+
+	/*
+	 * Send govinfo notification.
+	 * Govinfo notification could potentially wake up another thread
+	 * managed by its clients. Thread wakeups might trigger a load
+	 * change callback that executes this function again. Therefore
+	 * no spinlock could be held when sending the notification.
+	 */
+	for_each_cpu(i, ppol->policy->cpus) {
+		pcpu = &per_cpu(cpuinfo, i);
+		govinfo.cpu = i;
+		govinfo.load = pcpu->load;
+		atomic_notifier_call_chain(&cpufreq_govinfo_notifier_list,
+					   CPUFREQ_LOAD_CHANGE, &govinfo);
+	}
+
+	spin_lock_irqsave(&ppol->target_freq_lock, flags);
+	new_freq = choose_freq(ppol, max_load * (ppol->policy->max / 100));
+	if (!new_freq) {
+		spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+		goto rearm;
+	}
+
+	ppol->target_freq = new_freq;
+	spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+	spin_lock_irqsave(&speedchange_cpumask_lock, flags);
+	cpumask_set_cpu(max_cpu, &speedchange_cpumask);
+	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
+	wake_up_process_no_notif(speedchange_task);
+
+rearm:
+	if (!timer_pending(&ppol->policy_timer))
+		cpufreq_darkness_timer_resched(data, false);
+
+exit:
+	up_read(&ppol->enable_sem);
+	return;
+}
+
 		next_sampling  = jiffies + usecs_to_jiffies(new_rate);
 		appointed_at = darkness_cpuinfo->work.timer.expires;
 
