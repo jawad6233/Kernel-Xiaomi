@@ -47,14 +47,49 @@ struct cpufreq_governor cpufreq_gov_nightmare = {
 	.owner                  = THIS_MODULE,
 };
 
-struct cpufreq_nightmare_cpuinfo {
-	cputime64_t prev_cpu_wall;
-	cputime64_t prev_cpu_idle;
-	struct cpufreq_frequency_table *freq_table;
-	struct delayed_work work;
-	struct cpufreq_policy *cur_policy;
-	int cpu;
-	unsigned int enable:1;
+
+static DEFINE_PER_CPU(struct cpufreq_nightmare_policyinfo *, polinfo);
+static DEFINE_PER_CPU(struct cpufreq_nightmare_cpuinfo, cpuinfo);
+
+static struct task_struct *speedchange_task;
+static cpumask_t speedchange_cpumask;
+static spinlock_t speedchange_cpumask_lock;
+static struct mutex gov_lock;
+
+#define DEFAULT_TIMER_RATE (20 * USEC_PER_MSEC)
+#define DEFAULT_TIMER_RATE_SUSP ((unsigned long)(50 * USEC_PER_MSEC))
+
+#define FREQ_RESPONSIVENESS		 768000
+#define FREQ_RESPONSIVENESS_MAX		1094400
+
+#define FREQ_STEP_AT_MIN_FREQ		40
+#define FREQ_STEP					50
+#define FREQ_UP_BRAKE_AT_MIN_FREQ	40
+#define FREQ_UP_BRAKE				30
+#define FREQ_STEP_DEC				10
+#define FREQ_STEP_DEC_AT_MAX_FREQ	10
+
+struct cpufreq_nightmare_tunables {
+	int usage_count;
+	/*
+	 * The sample rate of the timer used to increase frequency
+	 */
+	unsigned long timer_rate;
+#ifdef CONFIG_STATE_NOTIFIER
+	unsigned long timer_rate_prev;
+#endif
+	/*
+	 * Max additional time to wait in idle, beyond timer_rate, at speeds
+	 * above minimum before wakeup to reduce speed, or -1 if unnecessary.
+	 */
+#define DEFAULT_TIMER_SLACK (4 * DEFAULT_TIMER_RATE)
+	int timer_slack_val;
+	bool io_is_busy;
+	/*
+	 * Whether to align timer windows across all CPUs.
+	 */
+	bool align_windows;
+>>>>>>> fbcd3ef... cpufreq: alucard, nightmare: intune freq
 	/*
 	 * mutex that serializes governor limit change with
 	 * do_nightmare_timer invocation. We do not want do_nightmare_timer to run
