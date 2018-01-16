@@ -29,10 +29,27 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-/*
- * dbs is used in this file as a shortform for demandbased switching
- * It helps to keep variable names smaller, simpler
- */
+#include <linux/display_state.h>
+#include <asm/cputime.h>
+
+struct cpufreq_alucard_policyinfo {
+	struct timer_list policy_timer;
+	struct timer_list policy_slack_timer;
+	spinlock_t load_lock; /* protects load tracking stat */
+	u64 last_evaluated_jiffy;
+	struct cpufreq_policy *policy;
+	struct cpufreq_frequency_table *freq_table;
+	spinlock_t target_freq_lock; /*protects target freq */
+	unsigned int target_freq;
+	unsigned int min_freq;
+	struct rw_semaphore enable_sem;
+	bool reject_notification;
+	int governor_enabled;
+	struct cpufreq_alucard_tunables *cached_tunables;
+	unsigned long *cpu_busy_times;
+	unsigned int up_rate;
+	unsigned int down_rate;
+};
 
 /* Tuning Interface */
 #ifdef CONFIG_MACH_LGE
@@ -60,22 +77,284 @@
 
 static void do_alucard_timer(struct work_struct *work);
 
+<<<<<<< HEAD
 struct cpufreq_alucard_cpuinfo {
 	u64 prev_cpu_wall;
 	u64 prev_cpu_idle;
 	struct cpufreq_frequency_table *freq_table;
 	struct delayed_work work;
 	struct cpufreq_policy *cur_policy;
+=======
+struct cpufreq_alucard_tunables {
+	int usage_count;
+	/*
+	 * The sample rate of the timer used to increase frequency
+	 */
+	unsigned long timer_rate;
+	unsigned long timer_rate_prev;
+	/*
+	 * Max additional time to wait in idle, beyond timer_rate, at speeds
+	 * above minimum before wakeup to reduce speed, or -1 if unnecessary.
+	 */
+#define DEFAULT_TIMER_SLACK (4 * DEFAULT_TIMER_RATE)
+	int timer_slack_val;
+	bool io_is_busy;
+	/*
+	 * Whether to align timer windows across all CPUs.
+	 */
+	bool align_windows;
+	/*
+	 * CPUs frequency scaling
+	 */
+	int freq_responsiveness;
+	int freq_responsiveness_max;
+	unsigned int cpus_up_rate_at_max_freq;
+	unsigned int cpus_up_rate;
+	unsigned int cpus_down_rate_at_max_freq;
+	unsigned int cpus_down_rate;
+>>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 	int pump_inc_step;
 	int pump_inc_step_at_min_freq;
 	int pump_dec_step;
 	int pump_dec_step_at_min_freq;
+<<<<<<< HEAD
 	bool governor_enabled;
 	unsigned int up_rate;
 	unsigned int down_rate;
 	unsigned int cpu;
 	unsigned int min_index;
 	unsigned int max_index;
+=======
+};
+
+/* For cases where we have single governor instance for system */
+static struct cpufreq_alucard_tunables *common_tunables;
+static struct cpufreq_alucard_tunables *cached_common_tunables;
+
+static struct attribute_group *get_sysfs_attr(void);
+
+/* Round to starting jiffy of next evaluation window */
+static u64 round_to_nw_start(u64 jif,
+			     struct cpufreq_alucard_tunables *tunables)
+{
+	unsigned long step = usecs_to_jiffies(tunables->timer_rate);
+	u64 ret;
+
+	if (tunables->align_windows) {
+		do_div(jif, step);
+		ret = (jif + 1) * step;
+	} else {
+		ret = jiffies + usecs_to_jiffies(tunables->timer_rate);
+	}
+
+	return ret;
+}
+
+static void cpufreq_alucard_timer_resched(unsigned long cpu,
+					      bool slack_only)
+{
+	struct cpufreq_alucard_policyinfo *ppol = per_cpu(polinfo, cpu);
+	struct cpufreq_alucard_cpuinfo *pcpu;
+	struct cpufreq_alucard_tunables *tunables =
+		ppol->policy->governor_data;
+	u64 expires;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&ppol->load_lock, flags);
+	expires = round_to_nw_start(ppol->last_evaluated_jiffy, tunables);
+	if (!slack_only) {
+		for_each_cpu(i, ppol->policy->cpus) {
+			pcpu = &per_cpu(cpuinfo, i);
+			pcpu->time_in_idle = get_cpu_idle_time(i,
+						&pcpu->time_in_idle_timestamp,
+						tunables->io_is_busy);
+		}
+		del_timer(&ppol->policy_timer);
+		ppol->policy_timer.expires = expires;
+		add_timer(&ppol->policy_timer);
+	}
+
+	if (tunables->timer_slack_val >= 0 &&
+	    ppol->target_freq > ppol->policy->min) {
+		expires += usecs_to_jiffies(tunables->timer_slack_val);
+		del_timer(&ppol->policy_slack_timer);
+		ppol->policy_slack_timer.expires = expires;
+		add_timer(&ppol->policy_slack_timer);
+	}
+
+	spin_unlock_irqrestore(&ppol->load_lock, flags);
+}
+
+/* The caller shall take enable_sem write semaphore to avoid any timer race.
+ * The policy_timer and policy_slack_timer must be deactivated when calling
+ * this function.
+ */
+static void cpufreq_alucard_timer_start(
+	struct cpufreq_alucard_tunables *tunables, int cpu)
+{
+	struct cpufreq_alucard_policyinfo *ppol = per_cpu(polinfo, cpu);
+	struct cpufreq_alucard_cpuinfo *pcpu;
+	u64 expires = round_to_nw_start(ppol->last_evaluated_jiffy, tunables);
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&ppol->load_lock, flags);
+	ppol->policy_timer.expires = expires;
+	add_timer(&ppol->policy_timer);
+	if (tunables->timer_slack_val >= 0 &&
+	    ppol->target_freq > ppol->policy->min) {
+		expires += usecs_to_jiffies(tunables->timer_slack_val);
+		ppol->policy_slack_timer.expires = expires;
+		add_timer(&ppol->policy_slack_timer);
+	}
+
+	for_each_cpu(i, ppol->policy->cpus) {
+		pcpu = &per_cpu(cpuinfo, i);
+		pcpu->time_in_idle =
+			get_cpu_idle_time(i, &pcpu->time_in_idle_timestamp,
+					  tunables->io_is_busy);
+	}
+	spin_unlock_irqrestore(&ppol->load_lock, flags);
+}
+
+static unsigned int choose_target_freq(struct cpufreq_alucard_policyinfo *pcpu,
+					unsigned int step, bool isup)
+{
+	struct cpufreq_policy *policy = pcpu->policy;
+	struct cpufreq_frequency_table *table = pcpu->freq_table;
+	struct cpufreq_frequency_table *pos;
+	unsigned int target_freq = 0, freq;
+	int i = 0, t = 0;
+
+	if (!policy || !table || !step)
+		return 0;
+
+	cpufreq_for_each_valid_entry(pos, table) {
+		freq = pos->frequency;
+		i = pos - table;
+		if (isup) {
+			if (freq > policy->cur) {
+				target_freq = freq;
+				step--;
+				if (step == 0) {
+					break;
+				}
+			}
+		} else {
+			if (freq == policy->cur) {
+				for (t = (i - 1); t >= 0; t--) {
+					if (table[t].frequency != CPUFREQ_ENTRY_INVALID) {
+						target_freq = table[t].frequency;
+						step--;
+						if (step == 0) {
+							break;
+						}
+					}
+				}
+				break;
+			}
+		}
+	}
+	
+	return target_freq;
+}
+
+static bool update_load(int cpu)
+{
+	struct cpufreq_alucard_policyinfo *ppol = per_cpu(polinfo, cpu);
+	struct cpufreq_alucard_cpuinfo *pcpu = &per_cpu(cpuinfo, cpu);
+	struct cpufreq_alucard_tunables *tunables =
+		ppol->policy->governor_data;
+	u64 now;
+	u64 now_idle;
+	unsigned int delta_idle;
+	unsigned int delta_time;
+	bool ignore = false;
+
+	now_idle = get_cpu_idle_time(cpu, &now, tunables->io_is_busy);
+	delta_idle = (unsigned int)(now_idle - pcpu->time_in_idle);
+	delta_time = (unsigned int)(now - pcpu->time_in_idle_timestamp);
+
+	WARN_ON_ONCE(!delta_time);
+
+	if (delta_time < delta_idle) {
+		pcpu->load = 0;
+		ignore = true;
+	} else {
+		pcpu->load = 100 * (delta_time - delta_idle);
+		do_div(pcpu->load, delta_time);
+	}
+	pcpu->time_in_idle = now_idle;
+	pcpu->time_in_idle_timestamp = now;
+
+	return ignore;
+}
+
+static void cpufreq_alucard_timer(unsigned long data)
+{
+	struct cpufreq_alucard_policyinfo *ppol = per_cpu(polinfo, data);
+	struct cpufreq_alucard_tunables *tunables =
+		ppol->policy->governor_data;
+	struct cpufreq_alucard_cpuinfo *pcpu;
+	struct cpufreq_govinfo govinfo;
+	unsigned int freq_responsiveness = tunables->freq_responsiveness;
+	unsigned int freq_responsiveness_max = tunables->freq_responsiveness_max;
+	int target_cpu_load;
+	int pump_inc_step = tunables->pump_inc_step;
+	int pump_dec_step = tunables->pump_dec_step;
+	unsigned int cpus_up_rate = tunables->cpus_up_rate;
+	unsigned int cpus_down_rate = tunables->cpus_down_rate;
+	unsigned int new_freq = 0;
+	unsigned int max_load = 0;
+	unsigned long flags;
+	unsigned long max_cpu;
+	int i, fcpu;
+
+	if (!down_read_trylock(&ppol->enable_sem))
+		return;
+	if (!ppol->governor_enabled)
+		goto exit;
+
+	fcpu = cpumask_first(ppol->policy->related_cpus);
+	spin_lock_irqsave(&ppol->load_lock, flags);
+	ppol->last_evaluated_jiffy = get_jiffies_64();
+
+	if (is_display_on() &&
+		tunables->timer_rate != tunables->timer_rate_prev)
+		tunables->timer_rate = tunables->timer_rate_prev;
+	else if (!is_display_on() &&
+		tunables->timer_rate != DEFAULT_TIMER_RATE_SUSP) {
+		tunables->timer_rate_prev = tunables->timer_rate;
+		tunables->timer_rate
+			= max(tunables->timer_rate,
+				DEFAULT_TIMER_RATE_SUSP);
+	}
+
+	/* CPUs Online Scale Frequency*/
+	target_cpu_load = (ppol->policy->cur * 100) / ppol->policy->max;
+	if (ppol->policy->cur < freq_responsiveness) {
+		pump_inc_step = tunables->pump_inc_step_at_min_freq;
+		pump_dec_step = tunables->pump_dec_step_at_min_freq;
+	} else if (ppol->policy->cur > freq_responsiveness_max) {
+		cpus_up_rate = tunables->cpus_up_rate_at_max_freq;
+		cpus_down_rate = tunables->cpus_down_rate_at_max_freq;
+	}
+
+	max_cpu = cpumask_first(ppol->policy->cpus);
+	for_each_cpu(i, ppol->policy->cpus) {
+		pcpu = &per_cpu(cpuinfo, i);
+		if (update_load(i))
+			continue;
+
+		if (pcpu->load > max_load) {
+			max_load = pcpu->load;
+			max_cpu = i;
+		}
+	}
+	spin_unlock_irqrestore(&ppol->load_lock, flags);
+
+>>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 	/*
 	 * mutex that serializes governor limit change with
 	 * do_alucard_timer invocation. We do not want do_alucard_timer to run
@@ -183,6 +462,7 @@ static ssize_t store_##file_name##_##num_core		\
 }
 
 
+<<<<<<< HEAD
 #define store_pcpu_pump_param(file_name, num_core)		\
 static ssize_t store_##file_name##_##num_core		\
 (struct kobject *kobj, struct attribute *attr,				\
@@ -206,6 +486,32 @@ static ssize_t store_##file_name##_##num_core		\
 										\
 	this_alucard_cpuinfo->file_name = input;			\
 	return count;							\
+=======
+static ssize_t store_timer_rate(struct cpufreq_alucard_tunables *tunables,
+		const char *buf, size_t count)
+{
+	int ret;
+	unsigned long val, val_round;
+
+	ret = kstrtoul(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+
+	val_round = jiffies_to_usecs(usecs_to_jiffies(val));
+	if (val != val_round)
+		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
+			val_round);
+	tunables->timer_rate = val_round;
+	tunables->timer_rate_prev = val_round;
+
+	return count;
+}
+
+static ssize_t show_timer_slack(struct cpufreq_alucard_tunables *tunables,
+		char *buf)
+{
+	return sprintf(buf, "%d\n", tunables->timer_slack_val);
+>>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 }
 
 store_pcpu_pump_param(pump_inc_step_at_min_freq, 1);
@@ -604,7 +910,29 @@ static void do_alucard_timer(struct work_struct *work)
 
 	alucard_check_cpu(this_alucard_cpuinfo);
 
+<<<<<<< HEAD
 	delay = usecs_to_jiffies(alucard_tuners_ins.sampling_rate);
+=======
+	tunables->timer_rate = DEFAULT_TIMER_RATE;
+	tunables->timer_rate_prev = DEFAULT_TIMER_RATE;
+	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
+	tunables->freq_responsiveness = FREQ_RESPONSIVENESS;
+	if (policy->cpu < 2)
+		tunables->freq_responsiveness_max = FREQ_RESPONSIVENESS_MAX;
+	else
+		tunables->freq_responsiveness_max = FREQ_RESPONSIVENESS_MAX_BIGC;
+	tunables->cpus_up_rate_at_max_freq = CPUS_UP_RATE;
+	tunables->cpus_up_rate = CPUS_UP_RATE;
+	tunables->cpus_down_rate_at_max_freq = CPUS_DOWN_RATE;
+	tunables->cpus_down_rate = CPUS_DOWN_RATE;
+	tunables->pump_inc_step_at_min_freq = PUMP_INC_STEP_AT_MIN_FREQ;
+	tunables->pump_inc_step = PUMP_INC_STEP;
+	tunables->pump_dec_step = PUMP_DEC_STEP;
+	tunables->pump_dec_step_at_min_freq = PUMP_DEC_STEP_AT_MIN_FREQ;
+
+	return tunables;
+}
+>>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	if (num_online_cpus() > 1) {

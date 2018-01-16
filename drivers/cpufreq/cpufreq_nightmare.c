@@ -29,10 +29,8 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-/*
- * dbs is used in this file as a shortform for demandbased switching
- * It helps to keep variable names smaller, simpler
- */
+#include <linux/display_state.h>
+#include <asm/cputime.h>
 
 static void do_nightmare_timer(struct work_struct *work);
 static int cpufreq_governor_nightmare(struct cpufreq_policy *policy,
@@ -75,9 +73,7 @@ struct cpufreq_nightmare_tunables {
 	 * The sample rate of the timer used to increase frequency
 	 */
 	unsigned long timer_rate;
-#ifdef CONFIG_STATE_NOTIFIER
 	unsigned long timer_rate_prev;
-#endif
 	/*
 	 * Max additional time to wait in idle, beyond timer_rate, at speeds
 	 * above minimum before wakeup to reduce speed, or -1 if unnecessary.
@@ -191,7 +187,26 @@ static void update_sampling_rate(unsigned int new_rate)
 		nightmare_cpuinfo = &per_cpu(od_nightmare_cpuinfo, policy->cpu);
 		cpufreq_cpu_put(policy);
 
-		mutex_lock(&nightmare_cpuinfo->timer_mutex);
+
+	if (is_display_on() &&
+		tunables->timer_rate != tunables->timer_rate_prev)
+		tunables->timer_rate = tunables->timer_rate_prev;
+	else if (!is_display_on() &&
+		tunables->timer_rate != DEFAULT_TIMER_RATE_SUSP) {
+		tunables->timer_rate_prev = tunables->timer_rate;
+		tunables->timer_rate
+			= max(tunables->timer_rate,
+				DEFAULT_TIMER_RATE_SUSP);
+	}
+
+	/* CPUs Online Scale Frequency*/
+	target_cpu_load = (ppol->policy->cur * 100) / ppol->policy->max;
+	if (ppol->policy->cur < freq_for_responsiveness) {
+		freq_step = tunables->freq_step_at_min_freq;
+		freq_up_brake = tunables->freq_up_brake_at_min_freq;
+	} else if (ppol->policy->cur > freq_for_responsiveness_max) {
+		freq_step_dec = tunables->freq_step_dec_at_max_freq;
+	}
 
 		if (!delayed_work_pending(&nightmare_cpuinfo->work)) {
 			mutex_unlock(&nightmare_cpuinfo->timer_mutex);
@@ -269,7 +284,13 @@ static ssize_t store_inc_cpu_load(struct kobject *a, struct attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	input = max(min(input,100),0);
+
+	val_round = jiffies_to_usecs(usecs_to_jiffies(val));
+	if (val != val_round)
+		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
+			val_round);
+	tunables->timer_rate = val_round;
+	tunables->timer_rate_prev = val_round;
 
 	if (input == atomic_read(&nightmare_tuners_ins.inc_cpu_load))
 		return count;
@@ -534,9 +555,21 @@ static void nightmare_check_cpu(struct cpufreq_nightmare_cpuinfo *this_nightmare
 			(cur_wall_time - this_nightmare_cpuinfo->prev_cpu_wall);
 	this_nightmare_cpuinfo->prev_cpu_wall = cur_wall_time;
 
-	idle_time = (unsigned int)
-			(cur_idle_time - this_nightmare_cpuinfo->prev_cpu_idle);
-	this_nightmare_cpuinfo->prev_cpu_idle = cur_idle_time;
+
+	tunables->timer_rate = DEFAULT_TIMER_RATE;
+	tunables->timer_rate_prev = DEFAULT_TIMER_RATE;
+	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
+	tunables->freq_for_responsiveness = FREQ_RESPONSIVENESS;
+	tunables->freq_for_responsiveness_max = FREQ_RESPONSIVENESS_MAX;
+	tunables->freq_step_at_min_freq = FREQ_STEP_AT_MIN_FREQ;
+	tunables->freq_step = FREQ_STEP;
+	tunables->freq_up_brake_at_min_freq = FREQ_UP_BRAKE_AT_MIN_FREQ;
+	tunables->freq_up_brake = FREQ_UP_BRAKE;
+	tunables->freq_step_dec = FREQ_STEP_DEC;
+	tunables->freq_step_dec_at_max_freq = FREQ_STEP_DEC_AT_MAX_FREQ;
+
+	return tunables;
+}
 
 	/*min_freq = atomic_read(&min_freq_limit[cpu]);
 	max_freq = atomic_read(&max_freq_limit[cpu]);*/
