@@ -181,17 +181,38 @@ static void update_sampling_rate(unsigned int new_rate)
 		struct cpufreq_nightmare_cpuinfo *nightmare_cpuinfo;
 		unsigned long next_sampling, appointed_at;
 
-		policy = cpufreq_cpu_get(cpu);
-		if (!policy)
-			continue;
-		nightmare_cpuinfo = &per_cpu(od_nightmare_cpuinfo, policy->cpu);
-		cpufreq_cpu_put(policy);
+
+static void cpufreq_nightmare_timer(unsigned long data)
+{
+	struct cpufreq_nightmare_policyinfo *ppol = per_cpu(polinfo, data);
+	struct cpufreq_nightmare_tunables *tunables =
+		ppol->policy->governor_data;
+	struct cpufreq_nightmare_cpuinfo *pcpu;
+	struct cpufreq_govinfo govinfo;
+	unsigned int freq_for_responsiveness = tunables->freq_for_responsiveness;
+	unsigned int freq_for_responsiveness_max = tunables->freq_for_responsiveness_max;
+	int target_cpu_load;
+	int freq_step = tunables->freq_step;
+	int freq_up_brake = tunables->freq_up_brake;
+	int freq_step_dec = tunables->freq_step_dec;
+	int tmp_step = 0;
+	unsigned int new_freq = 0;
+	unsigned int max_load = 0;
+	unsigned long flags;
+	unsigned long max_cpu;
+	int i, fcpu;
+	bool display_on = is_display_on();
+
+	if (!down_read_trylock(&ppol->enable_sem))
+		return;
+	if (!ppol->governor_enabled)
+		goto exit;
 
 
-	if (is_display_on() &&
+	if (display_on &&
 		tunables->timer_rate != tunables->timer_rate_prev)
 		tunables->timer_rate = tunables->timer_rate_prev;
-	else if (!is_display_on() &&
+	else if (!display_on &&
 		tunables->timer_rate != DEFAULT_TIMER_RATE_SUSP) {
 		tunables->timer_rate_prev = tunables->timer_rate;
 		tunables->timer_rate
