@@ -67,24 +67,12 @@ struct cpufreq_alucard_policyinfo {
 #define INC_CPU_LOAD			90
 #define INC_CPU_LOAD_AT_MIN_FREQ	60
 
-#define FREQ_RESPONSIVENESS		 768000
-#define FREQ_RESPONSIVENESS_MAX		1094400
-#define FREQ_RESPONSIVENESS_MAX_BIGC	1401000
 
-/* sample rate */
-#define MIN_SAMPLING_RATE		10000
-#define SAMPLING_RATE			50000
+#define CPUS_DOWN_RATE				1
+#define CPUS_UP_RATE				1
 
 static void do_alucard_timer(struct work_struct *work);
 
-<<<<<<< HEAD
-struct cpufreq_alucard_cpuinfo {
-	u64 prev_cpu_wall;
-	u64 prev_cpu_idle;
-	struct cpufreq_frequency_table *freq_table;
-	struct delayed_work work;
-	struct cpufreq_policy *cur_policy;
-=======
 struct cpufreq_alucard_tunables {
 	int usage_count;
 	/*
@@ -112,19 +100,10 @@ struct cpufreq_alucard_tunables {
 	unsigned int cpus_up_rate;
 	unsigned int cpus_down_rate_at_max_freq;
 	unsigned int cpus_down_rate;
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 	int pump_inc_step;
 	int pump_inc_step_at_min_freq;
 	int pump_dec_step;
 	int pump_dec_step_at_min_freq;
-<<<<<<< HEAD
-	bool governor_enabled;
-	unsigned int up_rate;
-	unsigned int down_rate;
-	unsigned int cpu;
-	unsigned int min_index;
-	unsigned int max_index;
-=======
 };
 
 /* For cases where we have single governor instance for system */
@@ -355,7 +334,7 @@ static void cpufreq_alucard_timer(unsigned long data)
 	}
 	spin_unlock_irqrestore(&ppol->load_lock, flags);
 
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
+
 	/*
 	 * mutex that serializes governor limit change with
 	 * do_alucard_timer invocation. We do not want do_alucard_timer to run
@@ -463,31 +442,7 @@ static ssize_t store_##file_name##_##num_core		\
 }
 
 
-<<<<<<< HEAD
-#define store_pcpu_pump_param(file_name, num_core)		\
-static ssize_t store_##file_name##_##num_core		\
-(struct kobject *kobj, struct attribute *attr,				\
-	const char *buf, size_t count)					\
-{									\
-	int input;						\
-	struct cpufreq_alucard_cpuinfo *this_alucard_cpuinfo; \
-	int ret;							\
-														\
-	ret = sscanf(buf, "%d", &input);					\
-	if (ret != 1)											\
-		return -EINVAL;										\
-														\
-	input = min(max(1, input), 6);							\
-														\
-	this_alucard_cpuinfo = &per_cpu(od_alucard_cpuinfo, num_core - 1); \
-														\
-	if (input == this_alucard_cpuinfo->file_name) {		\
-		return count;						\
-	}								\
-										\
-	this_alucard_cpuinfo->file_name = input;			\
-	return count;							\
-=======
+
 static ssize_t store_timer_rate(struct cpufreq_alucard_tunables *tunables,
 		const char *buf, size_t count)
 {
@@ -512,7 +467,6 @@ static ssize_t show_timer_slack(struct cpufreq_alucard_tunables *tunables,
 		char *buf)
 {
 	return sprintf(buf, "%d\n", tunables->timer_slack_val);
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 }
 
 store_pcpu_pump_param(pump_inc_step_at_min_freq, 1);
@@ -911,17 +865,11 @@ static void do_alucard_timer(struct work_struct *work)
 
 	alucard_check_cpu(this_alucard_cpuinfo);
 
-<<<<<<< HEAD
-	delay = usecs_to_jiffies(alucard_tuners_ins.sampling_rate);
-=======
 	tunables->timer_rate = DEFAULT_TIMER_RATE;
 	tunables->timer_rate_prev = DEFAULT_TIMER_RATE;
 	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
-	tunables->freq_responsiveness = FREQ_RESPONSIVENESS;
-	if (policy->cpu < 2)
-		tunables->freq_responsiveness_max = FREQ_RESPONSIVENESS_MAX;
-	else
-		tunables->freq_responsiveness_max = FREQ_RESPONSIVENESS_MAX_BIGC;
+	tunables->freq_responsiveness = policy->min;
+	tunables->freq_responsiveness_max = policy->max;
 	tunables->cpus_up_rate_at_max_freq = CPUS_UP_RATE;
 	tunables->cpus_up_rate = CPUS_UP_RATE;
 	tunables->cpus_down_rate_at_max_freq = CPUS_DOWN_RATE;
@@ -933,7 +881,6 @@ static void do_alucard_timer(struct work_struct *work)
 
 	return tunables;
 }
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	if (num_online_cpus() > 1) {
