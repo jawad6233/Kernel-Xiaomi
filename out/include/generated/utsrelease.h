@@ -1,1 +1,0 @@
-#define UTS_RELEASE "3.18.100-RockStar-g24a8d2c-dirty"
