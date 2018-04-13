@@ -255,6 +255,16 @@ ssize_t ovl_getxattr(struct dentry *dentry, const char *name,
 	return vfs_getxattr(realpath.dentry, name, value, size);
 }
 
+static bool ovl_can_list(const char *s)
+{
+	/* List all non-trusted xatts */
+	if (strncmp(s, XATTR_TRUSTED_PREFIX, XATTR_TRUSTED_PREFIX_LEN) != 0)
+		return true;
+
+	/* Never list trusted.overlay, list other trusted for superuser only */
+	return !ovl_is_private_xattr(s) && capable(CAP_SYS_ADMIN);
+}
+
 ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
 {
 	struct path realpath;
@@ -276,7 +286,9 @@ ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
 
 		BUG_ON(off + slen > res);
 
-		if (ovl_is_private_xattr(s)) {
+
+		len -= slen;
+		if (!ovl_can_list(s)) {
 			res -= slen;
 			memmove(s, s + slen, res - off);
 		} else {
