@@ -4915,14 +4915,9 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 			(usb_supply_type == POWER_SUPPLY_TYPE_USB_DCP)) {
 		cancel_delayed_work_sync(&chip->hvdcp_det_work);
 		smbchg_stay_awake(chip, PM_DETECT_HVDCP);
-<<<<<<< HEAD
-		schedule_delayed_work(&chip->hvdcp_det_work,
-					msecs_to_jiffies(HVDCP_NOTIFY_MS));
-=======
 		queue_delayed_work(system_power_efficient_wq,
 			&chip->hvdcp_det_work,
 			msecs_to_jiffies(HVDCP_NOTIFY_MS));
->>>>>>> 96b7daf... power: smbcharger: queue work on system_power_efficient_wq
 	}
 
 	smbchg_detect_parallel_charger(chip);
@@ -5258,12 +5253,8 @@ static void smbchg_handle_hvdcp3_disable(struct smbchg_chip *chip)
 		read_usb_type(chip, &usb_type_name, &usb_supply_type);
 		smbchg_change_usb_supply_type(chip, usb_supply_type);
 		if (usb_supply_type == POWER_SUPPLY_TYPE_USB_DCP)
-<<<<<<< HEAD
-			schedule_delayed_work(&chip->hvdcp_det_work,
-=======
 			queue_delayed_work(system_power_efficient_wq,
 				&chip->hvdcp_det_work,
->>>>>>> 96b7daf... power: smbcharger: queue work on system_power_efficient_wq
 				msecs_to_jiffies(HVDCP_NOTIFY_MS));
 	} else {
 		smbchg_change_usb_supply_type(chip, POWER_SUPPLY_TYPE_UNKNOWN);
