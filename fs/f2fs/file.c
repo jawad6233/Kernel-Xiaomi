@@ -475,6 +475,8 @@ static int f2fs_file_mmap(struct file *file, struct vm_area_struct *vma)
 static int f2fs_file_open(struct inode *inode, struct file *filp)
 {
 
+	int err = fscrypt_file_open(inode, filp);
+
 	struct dentry *dir;
 
 
@@ -735,6 +737,10 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 		return -EIO;
 
 	err = inode_change_ok(inode, attr);
+	if (err)
+		return err;
+
+	err = fscrypt_prepare_setattr(dentry, attr);
 	if (err)
 		return err;
 
