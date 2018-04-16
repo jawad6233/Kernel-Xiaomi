@@ -172,15 +172,15 @@ static int zen_init_queue(struct request_queue *q, struct elevator_type *e)
 	}
 	eq->elevator_data = zdata;
 
+	spin_lock_irq(q->queue_lock);
+	q->elevator = eq;
+	spin_unlock_irq(q->queue_lock);
+
 	INIT_LIST_HEAD(&zdata->fifo_list[SYNC]);
 	INIT_LIST_HEAD(&zdata->fifo_list[ASYNC]);
 	zdata->fifo_expire[SYNC] = sync_expire;
 	zdata->fifo_expire[ASYNC] = async_expire;
 	zdata->fifo_batch = fifo_batch;
-
-	spin_lock_irq(q->queue_lock);
-	q->elevator = eq;
-	spin_unlock_irq(q->queue_lock);
 	return 0;
 }
 
