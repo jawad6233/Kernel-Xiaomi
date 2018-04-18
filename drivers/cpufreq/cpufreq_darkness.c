@@ -27,17 +27,17 @@
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
-<<<<<<< HEAD
-=======
+
 #include <linux/sched/rt.h>
 #include <linux/time.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/kthread.h>
 #include <linux/slab.h>
-#include <linux/display_state.h>
 #include <asm/cputime.h>
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#endif
 
 /*
  * dbs is used in this file as a shortform for demandbased switching
@@ -48,34 +48,15 @@ static void do_darkness_timer(struct work_struct *work);
 static int cpufreq_governor_darkness(struct cpufreq_policy *policy,
 				unsigned int event);
 
-<<<<<<< HEAD
-#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_DARKNESS
-static
-#endif
-struct cpufreq_governor cpufreq_gov_darkness = {
-	.name                   = "darkness",
-	.governor               = cpufreq_governor_darkness,
-	.owner                  = THIS_MODULE,
-};
-
-struct cpufreq_darkness_cpuinfo {
-	cputime64_t prev_cpu_wall;
-	cputime64_t prev_cpu_idle;
-	struct cpufreq_frequency_table *freq_table;
-	struct delayed_work work;
-	struct cpufreq_policy *cur_policy;
-	int cpu;
-	unsigned int enable:1;
-=======
 struct cpufreq_darkness_tunables {
 	int usage_count;
 	/*
 	 * The sample rate of the timer used to increase frequency
 	 */
 	unsigned long timer_rate;
+#ifdef CONFIG_STATE_NOTIFIER
 	unsigned long timer_rate_prev;
-
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
+#endif
 	/*
 	 * percpu mutex that serializes governor limit change with
 	 * do_dbs_timer invocation. We do not want do_dbs_timer to run
@@ -165,8 +146,10 @@ static void update_sampling_rate(unsigned int new_rate)
 static void cpufreq_darkness_timer(unsigned long data)
 {
 	struct cpufreq_darkness_policyinfo *ppol = per_cpu(polinfo, data);
+#ifdef CONFIG_STATE_NOTIFIER
 	struct cpufreq_darkness_tunables *tunables =
 		ppol->policy->governor_data;
+#endif
 	struct cpufreq_darkness_cpuinfo *pcpu;
 	struct cpufreq_govinfo govinfo;
 	unsigned int new_freq;
@@ -184,16 +167,18 @@ static void cpufreq_darkness_timer(unsigned long data)
 	spin_lock_irqsave(&ppol->load_lock, flags);
 	ppol->last_evaluated_jiffy = get_jiffies_64();
 
-	if (is_display_on() &&
+#ifdef CONFIG_STATE_NOTIFIER
+	if (!state_suspended &&
 		tunables->timer_rate != tunables->timer_rate_prev)
 		tunables->timer_rate = tunables->timer_rate_prev;
-	else if (!is_display_on() &&
+	else if (state_suspended &&
 		tunables->timer_rate != DEFAULT_TIMER_RATE_SUSP) {
 		tunables->timer_rate_prev = tunables->timer_rate;
 		tunables->timer_rate
 			= max(tunables->timer_rate,
 				DEFAULT_TIMER_RATE_SUSP);
 	}
+#endif
 
 		if (!delayed_work_pending(&darkness_cpuinfo->work)) {
 			mutex_unlock(&darkness_cpuinfo->timer_mutex);
@@ -267,8 +252,7 @@ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 {
 	int input;
 	int ret;
-<<<<<<< HEAD
-=======
+
 	unsigned long val, val_round;
 
 	ret = kstrtoul(buf, 0, &val);
@@ -280,8 +264,9 @@ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
 			val_round);
 	tunables->timer_rate = val_round;
+#ifdef CONFIG_STATE_NOTIFIER
 	tunables->timer_rate_prev = val_round;
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
+#endif
 
 	ret = sscanf(buf, "%d", &input);
 	if (ret != 1)
@@ -328,15 +313,11 @@ static void darkness_check_cpu(struct cpufreq_darkness_cpuinfo *this_darkness_cp
 	cpu = this_darkness_cpuinfo->cpu;
 	cpu_policy = this_darkness_cpuinfo->cur_policy;
 
-<<<<<<< HEAD
-	cur_idle_time = get_cpu_idle_time_us(cpu, NULL);
-	cur_idle_time += get_cpu_iowait_time_us(cpu, &cur_wall_time);
-=======
 	tunables->timer_rate = DEFAULT_TIMER_RATE;
+#ifdef CONFIG_STATE_NOTIFIER
 	tunables->timer_rate_prev = DEFAULT_TIMER_RATE;
+#endif
 	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
->>>>>>> 848de62... cpufreq: alucard/darkness/nightmare: turn on suspend state function
-
 	wall_time = (unsigned int)
 			(cur_wall_time - this_darkness_cpuinfo->prev_cpu_wall);
 	this_darkness_cpuinfo->prev_cpu_wall = cur_wall_time;
