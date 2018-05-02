@@ -699,6 +699,12 @@ config AIO_HOTPLUG
 	help
 	  an All in One HotPlug for Traditional Quad-Core SoCs and 
 	  Hexa/Octa-Core big.LITTLE SoCs.
+	  
+config MAKO_HOTPLUG
+ 	bool "Mako Hotplug"
+ 	default n
+ 	help
+	  Mako Hotplug: A custom hotplug MOD by fransico franco
 
 # The GPIO number here must be sorted by descending number. In case of
 # a multiplatform kernel, we just want the highest value required by the
